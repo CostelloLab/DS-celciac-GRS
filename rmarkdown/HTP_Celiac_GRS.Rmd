@@ -33,9 +33,10 @@ set.seed(1234)
 
 ```{r load and filter data}
 # Data
-meta  <- read.csv("./MEGA_041822_META_CeliacGRS_v0.1_JRS.csv")# Load the metadata
-results  <- read.csv('./MEGA_041822_RESULTS_CDGRS2022_VariantDosage_vs_Celiac_v0.2_JRS.csv')# Load the Results
-analysis  <- read.csv('./MEGA_041822_AnalysisData_CDGRS_Sharp2022_v0.1_JRS.csv')# Load the Analysis data
+meta  <- read.csv("./data/MEGA_041822_META_CeliacGRS_v0.1_JRS.csv")# Load the metadata
+results  <- read.csv('./data/MEGA_041822_RESULTS_CDGRS2022_VariantDosage_vs_Celiac_v0.2_JRS.csv')# Load the Results
+analysis  <- read.csv('./data/MEGA_041822_AnalysisData_CDGRS_Sharp2022_v0.1_JRS.csv')# Load the Analysis data
+pcs <- read.csv('./data/MEGA_041822_Espinosa_MEGA2_HTP_GS_08132019_updated_callrate_passing_QC_KEEPforHLAvsCeliac_EXCLUDEvariants_mind05_geno0.02_maf0.05_PRUNEDindeppairwise0.2_v0.1_JRS.eigenvec', sep = " ")
 
 
 # Filtering #
@@ -58,7 +59,8 @@ DS_dosage <- analysis_data %>%
   pivot_wider(id_cols = 'MEGA.IID',
               names_from = 'Variant..Sharp.2022.',
               values_from = 'Dosage_for_GRS') %>%
-  left_join(meta[, c('MEGA.IID', 'Celiac')], by = 'MEGA.IID') %>% 
+    left_join(meta[, c('MEGA.IID', 'Celiac')], by = 'MEGA.IID') %>%
+    left_join(pcs[, c('IID', 'PC1', 'PC2','PC3','PC4','PC5')], by = c('MEGA.IID'= 'IID')) %>%
     column_to_rownames('MEGA.IID')
 
 
@@ -73,9 +75,9 @@ celiac_log_reg <- function(subjects = subjects, DS_dosage = DS_dosage, control_s
 
     train_samples  <-sample(length(control_subjects), (length(celiac_subjects)-length(subjects))*control_to_case_ratio)
     train_controls <- control_subjects[train_samples]
-    tmp_data <- dosage_data[c(celiac_subjects[-subjects],train_controls),]
+    tmp_data <- DS_dosage[c(celiac_subjects[-subjects],train_controls),]
 
-    tmp_model <- suppressWarnings(glm(tmp_data$Celiac ~ tmp_data[[snp]],family= binomial(link = "logit")))
+    tmp_model <- suppressWarnings(glm(Celiac ~ tmp_data[[snp]] + PC1 + PC2+PC3+PC4+PC5,family= binomial(link = "logit"),data = tmp_data))
     weight <- coef(tmp_model)[2]
     weight <- ifelse(is.finite(weight), weight, NA)
     tmp_resutls <- c(weight,  suppressMessages(confint(tmp_model)[2,]),  tmp_model$aic, ifelse(is.na(weight), NA, summary(tmp_model)$coefficients[2,4]))
@@ -86,9 +88,10 @@ celiac_log_reg <- function(subjects = subjects, DS_dosage = DS_dosage, control_s
 
 ```{r auc}
 
-celiac_auc <- function(subjects = subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp) {
+celiac_accuracy <- function(subjects = subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp) {
 
     model <- celiac_log_reg(subjects, DS_dosage, control_subjects, celiac_subjects, control_to_case_ratio, snp)
+    
     weight = model$coef[2]
     
     tmp_auc <- list()
