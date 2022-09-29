@@ -90,7 +90,7 @@ celiac_log_reg <- function(subjects = subjects, DS_dosage = DS_dosage, control_s
 
 celiac_accuracy <- function(subjects = subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp) {
 
-    model <- celiac_log_reg(subjects, DS_dosage, control_subjects, celiac_subjects, control_to_case_ratio, snp)
+    model <- celiac_log_reg(subjects=subjects, DS_dosage=DS_dosage, control_subjects=control_subjects, celiac_subjects=celiac_subjects, control_to_case_ratio= control_to_case_ratio, snp=snp)
     
  #weight = model$coef[2]
     
@@ -111,7 +111,7 @@ celiac_control_sampling <- function(subjects= subjects, DS_dosage = DS_dosage, c
 
     all_models <- list()
     for(i in 1:sampling_iterations) {
-        all_models[[i]] <- celiac_accuracy(subjects, DS_dosage, control_subjects, celiac_subjects, test_iterations = test_iterations, control_to_case_ratio, snp = snp)
+        all_models[[i]] <- celiac_accuracy(subjects=subjects, DS_dosage=DS_dosage, control_subjects=control_subjects, celiac_subjects=celiac_subjects, test_iterations = test_iterations, control_to_case_ratio=control_to_case_ratio, snp = snp)
         
     }
 
@@ -131,7 +131,7 @@ celiac_cv  <-  function( DS_dosage = DS_dosage, control_subjects = control_subje
     groups = split(celiac_subjects, cut(seq_along(celiac_subjects), group_numbers, labels = F))
     weighted_medians <- list()
     for(i in 1:length(groups)) {
-        weighted_medians[[i]] <- celiac_control_sampling(groups[[i]], DS_dosage=DS_dosage, control_subjects = control_subjects, celiac_subjects= celiac_subjects, control_to_case_ratio=control_to_case_ratio, snp=snp)
+        weighted_medians[[i]] <- celiac_control_sampling(groups[[i]], DS_dosage=DS_dosage, control_subjects = control_subjects, celiac_subjects= celiac_subjects, control_to_case_ratio=control_to_case_ratio, snp=snp, sampling_iterations = sampling_iterations, test_iterations = test_iterations)
     }
 
     weights <- sapply(weighted_medians, function(x) x$weighted_median_weight)
@@ -156,21 +156,21 @@ celiac_GRS <- function(DS_dosage = DS_dosage, control_subjects = control_subject
    
   #create a list for results
     grs_results <- list()
-
+# 50 test_iteations, 50 sampling_iterations
   for(snp in names(DS_dosage)[1:49]){
     print(snp)
     # test for differences in Celiac's disease by dosage
 
-    breakdown <- table(dosage_data[[snp]], dosage_data$Celiac)
+    breakdown <- table(DS_dosage[[snp]], dosage_data$Celiac)
     
     if(!(dim(breakdown)[1] == 2 & any(breakdown == 0))) {
-        grs_results[[snp]] <- celiac_cv(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = test_iterations, control_to_case_ratio = control_to_case_ratio, snp = snp, sampling_iterations = sampling_iteations, k = k)
-        print(paste0(round(which(names(dosage_data)==snp)/49,2)*100,"% complete"))
+        grs_results[[snp]] <- celiac_cv(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = test_iterations, control_to_case_ratio = control_to_case_ratio, snp = snp, sampling_iterations = sampling_iterations, k = k)
+        print(paste0(round(which(names(DS_dosage)==snp)/49,2)*100,"% complete"))
 
 
     } else {
-        grs_reslt[[snp]] = list(weighted_mean_weight = NA, mean_accuracy = NA)
-        print(paste0(round(which(names(dosage_data)==snp)/49,2)*100,"% complete"))
+        grs_results[[snp]] = list(weighted_mean_weight = NA, mean_accuracy = NA)
+        print(paste0(round(which(names(DS_dosage)==snp)/49,2)*100,"% complete"))
 
     }
   }
