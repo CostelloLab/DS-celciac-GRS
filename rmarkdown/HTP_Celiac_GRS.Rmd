@@ -76,12 +76,12 @@ celiac_log_reg <- function(subjects = subjects, DS_dosage = DS_dosage, control_s
     train_samples  <-sample(length(control_subjects), (length(celiac_subjects)-length(subjects))*control_to_case_ratio)
     train_controls <- control_subjects[train_samples]
     tmp_data <- DS_dosage[c(celiac_subjects[-subjects],train_controls),]
-
-    tmp_model <- suppressWarnings(glm(Celiac ~ tmp_data[[snp]] + PC1 + PC2+PC3+PC4+PC5,family= binomial(link = "logit"),data = tmp_data))
+    tmp <- as.formula(paste0('Celiac ~ ',snp,' + PC1 + PC2+PC3+PC4+PC5'))
+    tmp_model <- suppressWarnings(glm(tmp,family= binomial(link = "logit"),data = tmp_data))
     weight <- coef(tmp_model)[2]
     weight <- ifelse(is.finite(weight), weight, NA)
     tmp_resutls <- c(weight,  suppressMessages(confint(tmp_model)[2,]),  tmp_model$aic, ifelse(is.na(weight), NA, summary(tmp_model)$coefficients[2,4]))
-    return(tmp_model)
+    return(list(logreg = tmp_model,train_samples = train_samples))
 }
 
 ```
@@ -92,17 +92,18 @@ celiac_accuracy <- function(subjects = subjects, DS_dosage = DS_dosage, control_
 
     model <- celiac_log_reg(subjects, DS_dosage, control_subjects, celiac_subjects, control_to_case_ratio, snp)
     
-    weight = model$coef[2]
+ #weight = model$coef[2]
     
-    tmp_auc <- list()
+    tmp_accuracy <- list()
     for(x in 1:test_iterations){
-        test_controls <- sample(control_subjects[-train_samples],control_to_case_ratio)
-        test_data <- dosage_data[c(subjects, test_controls),c(snp,'Celiac')]
-        test_data$prediction <- test_data[, snp]*weight
-        tmp_auc <- suppressMessages(roc(response = test_data$Celiac, predictor = test_data$prediction)$auc)
-    }
+        test_controls <- sample(control_subjects[-model$train_samples],control_to_case_ratio)
+        test_data <- DS_dosage[c(subjects, test_controls),c(snp,'Celiac', 'PC1', 'PC2','PC3','PC4','PC5')]
+        probabilities <- model$logreg %>% predict(test_data, type = "response")
+        test_data$prediction <- ifelse(probabilities > (1/(case_to_control_ratio+length(subjects))), 1, 0) # weighting predictions based on the ratio between cases and controls
+        tmp_accuracy[[x]] <- mean(test_data$prediction == test_data$Celiac)
+       }
 
-    return(list(model = model, auc = median(as.numeric(tmp_auc))))
+    return(list(model = model, accuracy = mean(as.numeric(tmp_accuracy))))
 }
 ```
 ```{r control_sampling}
@@ -111,7 +112,9 @@ celiac_control_sampling <- function(subjects= subjects, DS_dosage = DS_dosage, c
     all_models <- list()
     
     for(i in 1:sampling_iterations) {
-      all_models[[i]] <- celiac_auc(subjects, DS_dosage, control_subjects, celiac_subjects, test_iterations = test_iterations, control_to_case_ratio, snp = snp)
+
+        all_models[[i]] <- celiac_accuracy(subjects, DS_dosage, control_subjects, celiac_subjects, test_iterations = test_iterations, control_to_case_ratio, snp = snp)
+
     }
     
 
