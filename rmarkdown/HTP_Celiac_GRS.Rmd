@@ -1,0 +1,308 @@
+---
+title: "Celiac Disease Polygenic Risk Score Based on Sharp et al."
+author: "Lucas Gillenwater"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+# Background
+Sharp et al. created a polygenic risk score (GRS) for Celiac Disease using the results from several large GWAS studies. The GRS multiplies the observed dosage for the risk allele by the logOdds for each locus. When repeated in the HTP cohort, the model results in a lower ROC than was observed by Sharp et al. This analysis explores how to optimize the model to improve this ROC. 
+
+# Recreating the GRS
+In this analysis I attempted to recreate the GRS from the Sharp et al. study. An issue with the smaller HTP data is the case imbalance. There are 19 observed Celiac cases with 185 controls. This imbalance can cause bias in the models from outliers in the small sample of cases. To overcome this bias I repeatedly subsampled from the data, preserving the case/control ratio. At each iteation I calculated the logOdds and after 1000 iterations chose the best performing model to be included in the score. I then calculated the AUC for the GRS using the HTP weights and compared that to the AUC using the Sharp et al. weights (using the HTP dosages as input). 
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+# load in the required libraries
+require(tidyverse)
+require(precrec)
+require(caret)
+require(ggplot2)
+require(pROC)
+library(data.table)
+
+# ste the seed for reproducibility
+set.seed(1234)
+```
+
+
+```{r load and filter data}
+# Data
+meta  <- read.csv("./MEGA_041822_META_CeliacGRS_v0.1_JRS.csv")# Load the metadata
+results  <- read.csv('./MEGA_041822_RESULTS_CDGRS2022_VariantDosage_vs_Celiac_v0.2_JRS.csv')# Load the Results
+analysis  <- read.csv('./MEGA_041822_AnalysisData_CDGRS_Sharp2022_v0.1_JRS.csv')# Load the Analysis data
+
+
+# Filtering #
+tokeep  <- meta %>% # create a vector of ID's to keep. Some need to be removed based on relatedness.
+    filter(EXCLUDE_from_analysis == 0)%>%
+    .$MEGA.IID
+
+analysis_data  <- analysis %>% # Filter the data
+    filter(MEGA.IID %in% tokeep)
+
+# Create dataset for producing the genetic risk score
+Sharp_risk_score <- analysis_data %>%
+  select('MEGA.IID', 'GRS') %>% 
+  distinct(MEGA.IID, .keep_all = T) %>% 
+  left_join(meta[, c("MEGA.IID", "Celiac")], by = "MEGA.IID")
+
+# Create DS dosage data frame
+DS_dosage <- analysis_data %>% 
+  select(MEGA.IID, Variant..Sharp.2022.,Dosage_for_GRS) %>% 
+  pivot_wider(id_cols = 'MEGA.IID',
+              names_from = 'Variant..Sharp.2022.',
+              values_from = 'Dosage_for_GRS') %>%
+  left_join(meta[, c('MEGA.IID', 'Celiac')], by = 'MEGA.IID') %>% 
+    column_to_rownames('MEGA.IID')
+
+
+celiac_subjects <- which(dosage_data$Celiac == 1)
+control_subjects <- seq(1:204)[-celiac_subjects]
+
+```
+
+```{r logistic regression model} 
+
+celiac_log_reg <- function(subjects = subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, control_to_case_ratio = 3, snp = snp ) {
+
+    train_samples  <-sample(length(control_subjects), (length(celiac_subjects)-length(subjects))*control_to_case_ratio)
+    train_controls <- control_subjects[train_samples]
+    tmp_data <- dosage_data[c(celiac_subjects[-subjects],train_controls),]
+
+    tmp_model <- suppressWarnings(glm(tmp_data$Celiac ~ tmp_data[[snp]],family= binomial(link = "logit")))
+    weight <- coef(tmp_model)[2]
+    weight <- ifelse(is.finite(weight), weight, NA)
+    tmp_resutls <- c(weight,  suppressMessages(confint(tmp_model)[2,]),  tmp_model$aic, ifelse(is.na(weight), NA, summary(tmp_model)$coefficients[2,4]))
+    return(tmp_model)
+}
+
+```
+
+```{r auc}
+
+celiac_auc <- function(subjects = subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp) {
+
+    model <- celiac_log_reg(subjects, DS_dosage, control_subjects, celiac_subjects, control_to_case_ratio, snp)
+    weight = model$coef[2]
+    
+    tmp_auc <- list()
+    for(x in 1:test_iterations){
+        test_controls <- sample(control_subjects[-train_samples],control_to_case_ratio)
+        test_data <- dosage_data[c(subjects, test_controls),c(snp,'Celiac')]
+        test_data$prediction <- test_data[, snp]*weight
+        tmp_auc <- suppressMessages(roc(response = test_data$Celiac, predictor = test_data$prediction)$auc)
+    }
+
+    return(list(model = model, auc = median(as.numeric(tmp_auc))))
+}
+```
+```{r control_sampling}
+celiac_control_sampling <- function(subjects= subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10) {
+
+    all_models <- list()
+    
+    for(i in 1:sampling_iterations) {
+      all_models[[i]] <- celiac_auc(subjects, DS_dosage, control_subjects, celiac_subjects, test_iterations = test_iterations, control_to_case_ratio, snp = snp)
+    }
+    
+
+    
+}
+
+
+
+```
+
+
+
+```{r risk score bootstrapping function}
+### Create a score based on the DS odds ratio for each SNP
+# htpGRS is a function for creating a GRS using the htp gene dosage data. 
+# Inputs: dosage_data     is a data frame containing the variant and gene dosage for every subject
+#         pseudoCount     numeric pseudoCount to add to the dosage data
+#         iterations      numeric number of iterations for bootstapping
+#         select_features logical, whether to select features based on significance criteria
+#         subN            sub sample size
+#         control_to_case_ratio   ratio of cases to controls
+
+htpGRS <- function(dosage_data = DS_dosage, pseudoCount = 0, iterations = 10, select_features = TRUE, subN = 19, control_to_case_ratio = 3 ) {
+    
+   # suppress the warning about fitting values to 0 or 1
+    options(warn = -1)
+    # identify subjects
+   
+  #create a list for results
+    grs_results <- list()
+
+  for(snp in names(dosage_data)[-50]){
+    print(snp)
+    # test for differences in Celiac's disease by dosage
+    
+    
+
+    breakdown <- table(dosage_data[[snp]], dosage_data$Celiac)
+    
+    if(!(dim(breakdown)[1] == 2 & any(breakdown == 0))) {
+    
+      print(paste0(round(which(names(dosage_data)==snp)/49,2)*100,"% complete"))
+  
+  
+
+  
+ 
+        for(sub in celiac_subjects){ #LOOCV for each subject
+            
+            subj_auc <- list()
+            tmp_results <- data.frame(weight = numeric(),
+                                low = numeric(),
+                                high = numeric(),
+                                AIC = numeric(),
+                                pvalue = numeric(),
+                                auc = numeric())
+
+            for(i in 1:iterations){ # iterations to sample the control distribution
+                                        # Sample from cases and controls, maintaining case/control ratio
+               
+
+            }
+
+
+        }
+
+    }
+
+
+
+
+
+
+```
+ 
+ 
+ 
+ 
+ 
+```{r}
+
+    }
+      
+    # tmp_means <- colMeans(tmp_results, na.rm = TRUE )
+    # results[[snp]] <- tmp_means
+
+    # Select the best performing results
+    tmp_results <- tmp_results %>%
+      arrange(pvalue)
+    #print(tmp_results)
+    grs_results[[snp]] <- tmp_results[1,]
+    } else {
+      print(snp)
+      grs_results[[snp]] = c(0,  NA,  NA, NA, NA)
+    }
+  }
+
+
+
+  # reset warning settings 
+  options(warn = 0)
+  
+  grs_results <- data.frame(do.call(rbind,grs_results))
+  rownames(grs_results) <- names(dosage_data)[-50]
+  
+  # create GRS
+  GRS <- colSums(apply(dosage_data[,-50], 1, function(x) x* grs_results$weight))
+
+  # plot the roc curves
+  rocs <- list()
+  rocs[["HTP"]] <-  suppressMessages( roc(response = dosage_data$Celiac, predictor= GRS))
+  rocs[["Sharp"]] <- suppressMessages(roc(Sharp_risk_score$Celiac, Sharp_risk_score$GRS))
+
+ p1 <- ggroc(rocs) +
+   theme_classic()
+  sharp_scores <- analysis %>% 
+    select(Score_Weight..logOR., Variant..Sharp.2022.) %>% 
+    distinct(.keep_all = TRUE)
+  
+
+  scores <- cbind(sharp_scores, grs_results$weight)
+  names(scores) <- c("Sharp", "Variant", "HTP")
+  scores <- scores %>% 
+    pivot_longer(cols = c(Sharp, HTP))
+  
+  
+  
+  p2 <- ggplot(scores, aes(y= value, x=Variant, fill = name)) +
+    geom_bar(stat = "identity", alpha = .6, position = "dodge") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 90))
+    
+  # pdf("HTP_Sharp_weights_072722.pdf")
+  # p2
+  # dev.off()
+  
+  print(rocs)
+  return(list(GRS = GRS, ROC_plot = p1, weights_plot = p2))
+  
+  
+}
+
+```
+
+
+```{r pseudo test, eval = FALSE}
+no_pseudo <- htpGRS(pseudoCount = 0, iterations = 100, subN = 18)
+no_pseudo$ROC_plot
+no_pseudo$weights_plot
+
+pseudo <- htpGRS(pseudoCount = 10, iterations = 1000, subN = 18)
+pseudo$ROC_plot
+pseudo$weights_plot
+roc(response = DS_dosage$Celiac, predictor = pseudo$GRS)
+
+# There does not seem to be a noticable effect from adding pseudoCounts to the data
+```
+
+```{r sub sampling test, eval = FALSE}
+
+sub18 <- htpGRS(pseudoCount = 0, iterations = 10, subN = 18)
+## sub17 <- htpGRS(pseudoCount = 0, iterations = 1000, subN = 17)
+## sub16 <- htpGRS(pseudoCount = 0, iterations = 1000, subN = 16)
+## sub15 <- htpGRS(pseudoCount = 0, iterations = 1000, subN = 15)
+## sub14 <- htpGRS(pseudoCount = 0, iterations = 1000, subN = 14)
+
+## sub_results = list(sub18 = sub18, sub17 = sub17, sub16 = sub16, sub15 = sub15, sub14 = sub14)
+## save(sub_results, file = "sub_sampling_results.Rdata")
+
+# Using 18 samples each iterations results in the best performing model. 
+
+```
+
+# Sub sampling sensitivity test
+
+To find the correct number of cases to sub sample to, I calculated the GRS for different numbers of sampled cases (14-18). The highest AUC of 0.867 was observed for sub sampling with 18 cases. 
+
+```{r sub sampling plot, message=FALSE}
+load("sub_sampling_results.Rdata")
+
+sub_aucs <- sapply(1:5, function(x) roc(response = DS_dosage$Celiac, predictor = sub_results[[x]]$GRS)$auc)
+
+plot(18:14, sub_aucs, xlab = "number of cases", ylab = "AUC", type = "b")
+
+```
+
+# ROC plot
+
+```{r}
+sub_results$sub18$ROC_plot
+```
+
+# Weights
+```{r}
+sub_results$sub18$weights_plot
+```
+
