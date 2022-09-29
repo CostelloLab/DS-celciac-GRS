@@ -25,7 +25,7 @@ require(caret)
 require(ggplot2)
 require(pROC)
 library(data.table)
-
+library(spatstat)
 # ste the seed for reproducibility
 set.seed(1234)
 ```
@@ -100,7 +100,7 @@ celiac_accuracy <- function(subjects = subjects, DS_dosage = DS_dosage, control_
         test_data <- DS_dosage[c(subjects, test_controls),c(snp,'Celiac', 'PC1', 'PC2','PC3','PC4','PC5')]
         probabilities <- model$logreg %>% predict(test_data, type = "response")
         test_data$prediction <- ifelse(probabilities > (1/(case_to_control_ratio+length(subjects))), 1, 0) # weighting predictions based on the ratio between cases and controls
-        tmp_accuracy[[x]] <- mean(test_data$prediction == test_data$Celiac)
+        tmp_accuracy[[x]] <- median(test_data$prediction == test_data$Celiac)
        }
 
     return(list(model = model, accuracy = mean(as.numeric(tmp_accuracy))))
@@ -117,74 +117,64 @@ celiac_control_sampling <- function(subjects= subjects, DS_dosage = DS_dosage, c
 
     weights <- sapply(all_models, function(x) x$model$logreg$coefficients[2])
     accuracies <- sapply(all_models, function(x) x$accuracy)
-    weighted_mean_weight <- weighted.mean(weights, accuracies)
-    return(weighted_mean_weight)
+    weighted_median_weight <- weighted.median(weights, accuracies)
+    return(list(weighted_median_weight = weighted_median_weight, median_accuracy = median(accuracies)))
     
   
 }
 ```
 
+```{r cv}
+
+celiac_cv  <-  function( DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1) {
+    group_numbers = ceiling(length(celiac_subjects)/k)
+    groups = split(celiac_subjects, cut(seq_along(celiac_subjects), group_numbers, labels = F))
+    weighted_medians <- list()
+    for(i in 1:length(groups)) {
+        weighted_medians[[i]] <- celiac_control_sampling(groups[[i]], DS_dosage=DS_dosage, control_subjects = control_subjects, celiac_subjects= celiac_subjects, control_to_case_ratio=control_to_case_ratio, snp=snp)
+    }
+
+    weights <- sapply(weighted_medians, function(x) x$weighted_median_weight)
+    accuracies <- sapply(weighted_medians, function(x) x$median_accuracy)
+    weighted_median_weight <- weighted.median(weights, accuracies)
+    return(list(weighted_median_weight = weighted_median_weight, mean_accuracy = median(accuracies)))
+}
+        
+
+```
 
 
+```{r risk score cv function}
 
+celiac_GRS <- function(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1) {
 
-```{r risk score bootstrapping function}
-### Create a score based on the DS odds ratio for each SNP
-# htpGRS is a function for creating a GRS using the htp gene dosage data. 
-# Inputs: dosage_data     is a data frame containing the variant and gene dosage for every subject
-#         pseudoCount     numeric pseudoCount to add to the dosage data
-#         iterations      numeric number of iterations for bootstapping
-#         select_features logical, whether to select features based on significance criteria
-#         subN            sub sample size
-#         control_to_case_ratio   ratio of cases to controls
+    original_names <- names(DS_dosage)
+    names(DS_dosage) <- make.names(original_names)
 
-htpGRS <- function(dosage_data = DS_dosage, pseudoCount = 0, iterations = 10, select_features = TRUE, subN = 19, control_to_case_ratio = 3 ) {
-    
-   # suppress the warning about fitting values to 0 or 1
-    options(warn = -1)
+    options(warn = -1)# suppress the warning about fitting values to 0 or 1
     # identify subjects
    
   #create a list for results
     grs_results <- list()
 
-  for(snp in names(dosage_data)[-50]){
+  for(snp in names(DS_dosage)[1:49]){
     print(snp)
     # test for differences in Celiac's disease by dosage
-    
-    
 
     breakdown <- table(dosage_data[[snp]], dosage_data$Celiac)
     
     if(!(dim(breakdown)[1] == 2 & any(breakdown == 0))) {
-    
-      print(paste0(round(which(names(dosage_data)==snp)/49,2)*100,"% complete"))
-  
-  
-
-  
- 
-        for(sub in celiac_subjects){ #LOOCV for each subject
-            
-            subj_auc <- list()
-            tmp_results <- data.frame(weight = numeric(),
-                                low = numeric(),
-                                high = numeric(),
-                                AIC = numeric(),
-                                pvalue = numeric(),
-                                auc = numeric())
-
-            for(i in 1:iterations){ # iterations to sample the control distribution
-                                        # Sample from cases and controls, maintaining case/control ratio
-               
-
-            }
+        grs_results[[snp]] <- celiac_cv(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = test_iterations, control_to_case_ratio = control_to_case_ratio, snp = snp, sampling_iterations = sampling_iteations, k = k)
+        print(paste0(round(which(names(dosage_data)==snp)/49,2)*100,"% complete"))
 
 
-        }
+    } else {
+        grs_reslt[[snp]] = list(weighted_mean_weight = NA, mean_accuracy = NA)
+        print(paste0(round(which(names(dosage_data)==snp)/49,2)*100,"% complete"))
 
     }
-
-
+  }
+}
 
 
 
@@ -207,10 +197,7 @@ htpGRS <- function(dosage_data = DS_dosage, pseudoCount = 0, iterations = 10, se
       arrange(pvalue)
     #print(tmp_results)
     grs_results[[snp]] <- tmp_results[1,]
-    } else {
-      print(snp)
-      grs_results[[snp]] = c(0,  NA,  NA, NA, NA)
-    }
+    } 
   }
 
 
