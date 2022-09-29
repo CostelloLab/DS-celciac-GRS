@@ -110,20 +110,21 @@ celiac_accuracy <- function(subjects = subjects, DS_dosage = DS_dosage, control_
 celiac_control_sampling <- function(subjects= subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10) {
 
     all_models <- list()
-    
     for(i in 1:sampling_iterations) {
-
         all_models[[i]] <- celiac_accuracy(subjects, DS_dosage, control_subjects, celiac_subjects, test_iterations = test_iterations, control_to_case_ratio, snp = snp)
-
+        
     }
-    
 
+    weights <- sapply(all_models, function(x) x$model$logreg$coefficients[2])
+    accuracies <- sapply(all_models, function(x) x$accuracy)
+    weighted_mean_weight <- weighted.mean(weights, accuracies)
+    return(weighted_mean_weight)
     
+  
 }
-
-
-
 ```
+
+
 
 
 
