@@ -86,7 +86,7 @@ celiac_log_reg <- function(subjects = subjects, DS_dosage = DS_dosage, control_s
 
 ```
 
-```{r auc}
+```{r accuracy}
 
 celiac_accuracy <- function(subjects = subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp) {
 
@@ -100,7 +100,7 @@ celiac_accuracy <- function(subjects = subjects, DS_dosage = DS_dosage, control_
         test_data <- DS_dosage[c(subjects, test_controls),c(snp,'Celiac', 'PC1', 'PC2','PC3','PC4','PC5')]
         probabilities <- model$logreg %>% predict(test_data, type = "response")
         test_data$prediction <- ifelse(probabilities > (1/(case_to_control_ratio+length(subjects))), 1, 0) # weighting predictions based on the ratio between cases and controls
-        tmp_accuracy[[x]] <- median(test_data$prediction == test_data$Celiac)
+        tmp_accuracy[[x]] <- mean(test_data$prediction == test_data$Celiac)
        }
 
     return(list(model = model, accuracy = mean(as.numeric(tmp_accuracy))))
@@ -108,6 +108,7 @@ celiac_accuracy <- function(subjects = subjects, DS_dosage = DS_dosage, control_
 ```
 ```{r control_sampling}
 celiac_control_sampling <- function(subjects= subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10) {
+
 
     all_models <- list()
     for(i in 1:sampling_iterations) {
@@ -117,8 +118,8 @@ celiac_control_sampling <- function(subjects= subjects, DS_dosage = DS_dosage, c
 
     weights <- sapply(all_models, function(x) x$model$logreg$coefficients[2])
     accuracies <- sapply(all_models, function(x) x$accuracy)
-    weighted_median_weight <- weighted.median(weights, accuracies)
-    return(list(weighted_median_weight = weighted_median_weight, median_accuracy = median(accuracies)))
+    weighted_mean_weight <- weighted.mean(weights, accuracies)
+    return(list(weighted_mean_weight = weighted_mean_weight, mean_accuracy = mean(accuracies)))
     
   
 }
@@ -129,15 +130,15 @@ celiac_control_sampling <- function(subjects= subjects, DS_dosage = DS_dosage, c
 celiac_cv  <-  function( DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1) {
     group_numbers = ceiling(length(celiac_subjects)/k)
     groups = split(celiac_subjects, cut(seq_along(celiac_subjects), group_numbers, labels = F))
-    weighted_medians <- list()
+    weighted_means <- list()
     for(i in 1:length(groups)) {
-        weighted_medians[[i]] <- celiac_control_sampling(groups[[i]], DS_dosage=DS_dosage, control_subjects = control_subjects, celiac_subjects= celiac_subjects, control_to_case_ratio=control_to_case_ratio, snp=snp, sampling_iterations = sampling_iterations, test_iterations = test_iterations)
+        weighted_means[[i]] <- celiac_control_sampling(groups[[i]], DS_dosage=DS_dosage, control_subjects = control_subjects, celiac_subjects= celiac_subjects, control_to_case_ratio=control_to_case_ratio, snp=snp, sampling_iterations = sampling_iterations, test_iterations = test_iterations)
     }
 
-    weights <- sapply(weighted_medians, function(x) x$weighted_median_weight)
-    accuracies <- sapply(weighted_medians, function(x) x$median_accuracy)
-    weighted_median_weight <- weighted.median(weights, accuracies)
-    return(list(weighted_median_weight = weighted_median_weight, mean_accuracy = median(accuracies)))
+    weights <- sapply(weighted_means, function(x) x$weighted_mean_weight)
+    accuracies <- sapply(weighted_means, function(x) x$mean_accuracy)
+    weighted_mean_weight <- weighted.mean(weights, accuracies)
+    return(list(weighted_mean_weight = weighted_mean_weight, mean_accuracy = mean(accuracies)))
 }
         
 
@@ -163,7 +164,7 @@ celiac_GRS <- function(DS_dosage = DS_dosage, control_subjects = control_subject
 
     breakdown <- table(DS_dosage[[snp]], dosage_data$Celiac)
     
-    if(!(dim(breakdown)[1] == 2 & any(breakdown == 0))) {
+    if(!(dim(breakdown)[1] == 2 && any(breakdown == 0))) {
         grs_results[[snp]] <- celiac_cv(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = test_iterations, control_to_case_ratio = control_to_case_ratio, snp = snp, sampling_iterations = sampling_iterations, k = k)
         print(paste0(round(which(names(DS_dosage)==snp)/49,2)*100,"% complete"))
 
@@ -174,6 +175,7 @@ celiac_GRS <- function(DS_dosage = DS_dosage, control_subjects = control_subject
 
     }
   }
+    return(grs_results)
 }
 
 
@@ -187,63 +189,53 @@ celiac_GRS <- function(DS_dosage = DS_dosage, control_subjects = control_subject
  
 ```{r}
 
-    }
-      
-    # tmp_means <- colMeans(tmp_results, na.rm = TRUE )
-    # results[[snp]] <- tmp_means
+grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1) {
+                                        # reset warning settings 
+    options(warn = 0)
 
-    # Select the best performing results
-    tmp_results <- tmp_results %>%
-      arrange(pvalue)
-    #print(tmp_results)
-    grs_results[[snp]] <- tmp_results[1,]
-    } 
-  }
-
-
-
-  # reset warning settings 
-  options(warn = 0)
+    grs_results <- celiac_GRS(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = test_iterations, control_to_case_ratio = control_to_case_ratio, snp = snp, sampling_iterations =sampling_iterations, k = k)
+    
+    grs_results <- data.frame(do.call(rbind,grs_results))
+    rownames(grs_results) <- names(DS_dosage)[1:49]
   
-  grs_results <- data.frame(do.call(rbind,grs_results))
-  rownames(grs_results) <- names(dosage_data)[-50]
-  
-  # create GRS
-  GRS <- colSums(apply(dosage_data[,-50], 1, function(x) x* grs_results$weight))
+                                        # create GRS
+    GRS <- colSums(apply(DS_dosage[,1:49], 1, function(x) x* as.numeric(grs_results$weighted_mean_weight)), na.rm = TRUE)
 
   # plot the roc curves
-  rocs <- list()
-  rocs[["HTP"]] <-  suppressMessages( roc(response = dosage_data$Celiac, predictor= GRS))
-  rocs[["Sharp"]] <- suppressMessages(roc(Sharp_risk_score$Celiac, Sharp_risk_score$GRS))
+    rocs <- list()
+    rocs[["HTP"]] <-  suppressMessages( pROC::roc(response = as.numeric(DS_dosage$Celiac), predictor= as.numeric(GRS)))
+    rocs[["Sharp"]] <- suppressMessages(pROC::roc(Sharp_risk_score$Celiac, Sharp_risk_score$GRS))
 
- p1 <- ggroc(rocs) +
-   theme_classic()
-  sharp_scores <- analysis %>% 
-    select(Score_Weight..logOR., Variant..Sharp.2022.) %>% 
-    distinct(.keep_all = TRUE)
-  
-
-  scores <- cbind(sharp_scores, grs_results$weight)
-  names(scores) <- c("Sharp", "Variant", "HTP")
-  scores <- scores %>% 
-    pivot_longer(cols = c(Sharp, HTP))
-  
-  
-  
-  p2 <- ggplot(scores, aes(y= value, x=Variant, fill = name)) +
-    geom_bar(stat = "identity", alpha = .6, position = "dodge") +
-    theme_classic() +
-    theme(axis.text.x = element_text(angle = 90))
+    p1 <- ggroc(rocs) +
+        theme_classic()
+    sharp_scores <- analysis %>% 
+        select(Score_Weight..logOR., Variant..Sharp.2022.) %>% 
+        distinct(.keep_all = TRUE)
     
-  # pdf("HTP_Sharp_weights_072722.pdf")
-  # p2
-  # dev.off()
-  
-  print(rocs)
-  return(list(GRS = GRS, ROC_plot = p1, weights_plot = p2))
-  
+
+    scores <- cbind(sharp_scores, as.numeric(grs_results$weighted_mean_weight))
+    names(scores) <- c("Sharp", "Variant", "HTP")
+    scores <- scores %>% 
+        pivot_longer(cols = c(Sharp, HTP))
+    
+    
+    
+    p2 <- ggplot(scores, aes(y= value, x=Variant, fill = name)) +
+        geom_bar(stat = "identity", alpha = .6, position = "dodge") +
+        theme_classic() +
+        theme(axis.text.x = element_text(angle = 90))
+    
+                                        # pdf("HTP_Sharp_weights_072722.pdf")
+                                        # p2
+                                        # dev.off()
+
+ 
+    
+    print(rocs)
+    return(list(GRS = GRS, ROC_plot = p1, weights_plot = p2))
   
 }
+
 
 ```
 
@@ -260,6 +252,15 @@ roc(response = DS_dosage$Celiac, predictor = pseudo$GRS)
 
 # There does not seem to be a noticable effect from adding pseudoCounts to the data
 ```
+
+```{r application}
+
+k1 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1)
+k2 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 2)
+
+```
+
+
 
 ```{r sub sampling test, eval = FALSE}
 
