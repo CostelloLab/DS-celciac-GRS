@@ -242,18 +242,15 @@ grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjec
 
 
     print(rocs)
-    return(list(GRS = GRS, ROC_plot = p1, weights_plot = p2, accuracies = p3))
+    return(list(GRS = GRS, ROC_plot = p1, weights_plot = p2, accuracies_plot = p3))
   
 }
 
-
 ```
-
-
 
 ```{r application}
 
-k1 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 3 , control_to_case_ratio = 3, snp = snp, sampling_iterations = 3, k = 1)
+k1 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10 , control_to_case_ratio = 3, snp = snp, sampling_iterations = 500, k = 1)
 k2 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 2)
 k3 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5, control_to_case_ratio = 3, snp = snp, sampling_iterations = 5, k = 4)
 ```
