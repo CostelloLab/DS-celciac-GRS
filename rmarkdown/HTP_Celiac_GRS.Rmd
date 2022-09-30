@@ -193,11 +193,11 @@ grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjec
 
     grs_results <- celiac_GRS(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = test_iterations, control_to_case_ratio = control_to_case_ratio, snp = snp, sampling_iterations =sampling_iterations, k = k)
     
-    grs_results <- data.frame(do.call(rbind,grs_results))
-    rownames(grs_results) <- names(DS_dosage)[1:49]
+    grs_results_df <- data.frame(do.call(rbind,grs_results))
+    rownames(grs_results_df) <- names(DS_dosage)[1:49]
   
                                         # create GRS
-    GRS <- colSums(apply(DS_dosage[,1:49], 1, function(x) x* as.numeric(grs_results$weighted_median_weight)), na.rm = TRUE)
+    GRS <- colSums(apply(DS_dosage[,1:49], 1, function(x) x* as.numeric(grs_results_df$weighted_median_weight)), na.rm = TRUE)
 
   # plot the roc curves
     rocs <- list()
@@ -211,7 +211,7 @@ grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjec
         distinct(.keep_all = TRUE)
     
 
-    scores <- cbind(sharp_scores, as.numeric(grs_results$weighted_median_weight))
+    scores <- cbind(sharp_scores, as.numeric(grs_results_df$weighted_median_weight))
     names(scores) <- c("Sharp", "Variant", "HTP")
     scores <- scores %>% 
         pivot_longer(cols = c(Sharp, HTP))
@@ -226,13 +226,10 @@ grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjec
                                         # pdf("HTP_Sharp_weights_072722.pdf")
                                         # p2
                                         # dev.off()
-    accuracies <- sapply(grs_results, function(x) x$accuracies)
+    accuracies <- data.frame(do.call(rbind, grs_results_df$accuracies))
     accuracies <- accuracies %>%
-        as.data.frame() %>%
-        t() %>%
-        as.data.frame() %>%
-        rownames_to_column() %>%
-        pivot_longer(!rowname)
+            rownames_to_column() %>%
+        pivot_longer( !rowname)
         
     
     p3 <- ggplot(accuracies, aes(x = rowname, y = value, fill = rowname)) +
@@ -253,22 +250,10 @@ grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjec
 ```
 
 
-```{r pseudo test, eval = FALSE}
-no_pseudo <- htpGRS(pseudoCount = 0, iterations = 100, subN = 18)
-no_pseudo$ROC_plot
-no_pseudo$weights_plot
-
-pseudo <- htpGRS(pseudoCount = 10, iterations = 1000, subN = 18)
-pseudo$ROC_plot
-pseudo$weights_plot
-roc(response = DS_dosage$Celiac, predictor = pseudo$GRS)
-
-# There does not seem to be a noticable effect from adding pseudoCounts to the data
-```
 
 ```{r application}
 
-k1 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5, control_to_case_ratio = 3, snp = snp, sampling_iterations = 5, k = 1)
+k1 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 3 , control_to_case_ratio = 3, snp = snp, sampling_iterations = 3, k = 1)
 k2 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 2)
 k3 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5, control_to_case_ratio = 3, snp = snp, sampling_iterations = 5, k = 4)
 ```
