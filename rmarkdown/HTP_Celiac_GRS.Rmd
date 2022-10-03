@@ -70,26 +70,39 @@ control_subjects <- seq(1:204)[-celiac_subjects]
 
 ```
 
+```{r}
+train_control_split <- function(subjects = subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, control_to_case_ratio = 3 ) {
+    
+    train_samples  <-sample(length(control_subjects), (length(celiac_subjects)-length(subjects))*control_to_case_ratio)
+    train_controls <- control_subjects[train_samples]
+    train_cases <- celiac_subjects
+    tmp_data <- DS_dosage[c(celiac_subjects[-subjects],train_controls),]
+    return(tmp_data)
+
+}
+
+```
+
+
 ```{r logistic regression model} 
 
 celiac_log_reg <- function(subjects = subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, control_to_case_ratio = 3, snp = snp, bootstrap = FALSE ) {
-    if(bootstrap) {
-        train_samples  <-sample(length(control_subjects), (length(celiac_subjects)*control_to_case_ratio))
-        train_controls <- control_subjects[train_samples]
-        train_cases <- sample(celiac_subjects, length(celiac_subjects)*control_to_case_ratio,replace = TRUE)
-        tmp_data <- DS_dosage[c(train_controls, train_cases),]
-    } else {
+
+    perfectly_separated <- TRUE
+    while(perfectly_separated) {
         
-        train_samples  <-sample(length(control_subjects), (length(celiac_subjects)-length(subjects))*control_to_case_ratio)
-        train_controls <- control_subjects[train_samples]
-        train_cases <- celiac_subjects
-        tmp_data <- DS_dosage[c(celiac_subjects[-subjects],train_controls),]
+        tmp_data <- train_control_split(subjects = subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, control_to_case_ratio = 3)
+        breakdown <- table(tmp_data[[snp]], tmp_data$Celiac)
+    
+        if(!(dim(breakdown)[1] == 2 && any(breakdown == 0))) {
+           perfectly_separated = FALSE
+        }
     }
     tmp <- as.formula(paste0('Celiac ~ ',snp,' + PC1 + PC2+PC3+PC4+PC5'))
     tmp_model <- suppressWarnings(glm(tmp,family= binomial(link = "logit"),data = tmp_data))
     weight <- coef(tmp_model)[2]
     weight <- ifelse(is.finite(weight), weight, NA)
-    tmp_resutls <- c(weight,  suppressMessages(confint(tmp_model)[2,]),  tmp_model$aic, ifelse(is.na(weight), NA, summary(tmp_model)$coefficients[2,4]))
+    tmp_results <- c(weight,  suppressMessages(confint(tmp_model)[2,]),  tmp_model$aic, ifelse(is.na(weight), NA, summary(tmp_model)$coefficients[2,4]))
     return(list(logreg = tmp_model,train_samples = train_samples))
 }
 
@@ -98,20 +111,22 @@ celiac_log_reg <- function(subjects = subjects, DS_dosage = DS_dosage, control_s
 ```{r accuracy}
 
 celiac_accuracy <- function(subjects = subjects, DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp) {
-    
+ 
     model <- celiac_log_reg(subjects=subjects, DS_dosage=DS_dosage, control_subjects=control_subjects, celiac_subjects=celiac_subjects, control_to_case_ratio= control_to_case_ratio, snp=snp)
     
     tmp_accuracy <- list()
     for(x in 1:test_iterations){
-        test_controls <- sample(control_subjects[-model$train_samples],control_to_case_ratio)
+        test_controls <- sample(control_subjects[-model$train_samples],length(subjects) * control_to_case_ratio)
         test_data <- DS_dosage[c(subjects, test_controls),c(snp,'Celiac', 'PC1', 'PC2','PC3','PC4','PC5')]
         test_data$probabilities <- model$logreg %>% predict(test_data, type = "response")
 
-        test_roc <- pROC::roc(response = test_data$Celiac, predictor = test_data$probabilities) # roc curve for the test data
-        J <-  test_roc$sensitivities - test_roc$specificities # using youden's J statistic to choose the best threshold. See https://machinelearningmastery.com/threshold-moving-for-imbalanced-classification/
-        ix <- max(J[is.finite(test_roc$thresholds)])
-        test_data$prediction <- ifelse(test_data$probabilities > test_roc$thresholds[2], 1, 0) # Choosing the threshold for prediction       
+        test_roc <- suppressMessages(pROC::roc(response = test_data$Celiac, predictor = test_data$probabilities)) # roc curve for the test data
+        J <-  test_roc$sensitivities + test_roc$specificities -1 # using youden's J statistic to choose the best threshold. See https://machinelearningmastery.com/threshold-moving-for-imbalanced-classification/
+        ix <- which(J == max(J[is.finite(test_roc$thresholds)]))
+        test_data$prediction <- ifelse(test_data$probabilities > test_roc$thresholds[ix], 1, 0) # Choosing the threshold for prediction
         tmp_accuracy[[x]] <-  yardstick::bal_accuracy_vec(factor(test_data$Celiac), factor(test_data$prediction))
+        print(test_data[, c(snp,'Celiac','prediction')])
+        print(tmp_accuracy[[x]])
        }
 
     return(list(model = model, accuracy = mean(as.numeric(tmp_accuracy))))
@@ -128,7 +143,7 @@ celiac_control_sampling <- function(subjects= subjects, DS_dosage = DS_dosage, c
 
     weights <- sapply(all_models, function(x) x$model$logreg$coefficients[2])
     accuracies <- sapply(all_models, function(x) x$accuracy)
-    weighted_mean_weight <- weighted.mean(weights, accuracies)
+    weighted_mean_weight <- weighted.mean(weights[accuracies > .5], accuracies[accuracies>.5])
     return(list(weighted_mean_weight = weighted_mean_weight, mean_accuracy = mean(accuracies)))
     
   
@@ -138,8 +153,10 @@ celiac_control_sampling <- function(subjects= subjects, DS_dosage = DS_dosage, c
 ```{r cv}
 
 celiac_cv  <-  function( DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1) {
-    group_numbers <- ceiling(length(celiac_subjects)/k)
-    groups <- split(celiac_subjects, cut(seq_along(celiac_subjects), group_numbers, labels = FALSE))
+
+    ## group_numbers <- ceiling(length(celiac_subjects)/k)
+    ## groups <- split(celiac_subjects, cut(seq_along(celiac_subjects), group_numbers, labels = FALSE))
+    groups <- combn(celiac_subjects, k, simplify = FALSE)
     weighted_means <- list()
     for(i in 1:length(groups)) {
         weighted_means[[i]] <- celiac_control_sampling(groups[[i]], DS_dosage=DS_dosage, control_subjects = control_subjects, celiac_subjects= celiac_subjects, control_to_case_ratio=control_to_case_ratio, snp=snp, sampling_iterations = sampling_iterations, test_iterations = test_iterations)
@@ -147,7 +164,7 @@ celiac_cv  <-  function( DS_dosage = DS_dosage, control_subjects = control_subje
 
     weights <- sapply(weighted_means, function(x) x$weighted_mean_weight)
     accuracies <- sapply(weighted_means, function(x) x$mean_accuracy)
-    weighted_mean_weight <- weighted.mean(weights, accuracies)
+    weighted_mean_weight <- weighted.mean(weights[accuracies>.5], accuracies[accuracies>.5])
     return(list(weighted_mean_weight = weighted_mean_weight, mean_accuracy = mean(accuracies), accuracies = accuracies))
 }
         
@@ -206,9 +223,8 @@ celiac_GRS <- function(DS_dosage = DS_dosage, control_subjects = control_subject
  
 ```{r}
 grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1) {
-                                        # reset warning settings 
-    options(warn = 0)
-
+                                        
+    
     grs_results <- celiac_GRS(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = test_iterations, control_to_case_ratio = control_to_case_ratio, snp = snp, sampling_iterations =sampling_iterations, k = k)
     
     grs_results_df <- data.frame(do.call(rbind,grs_results))
@@ -246,7 +262,8 @@ grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjec
     accuracies <- data.frame(do.call(rbind, grs_results_df$accuracies))
     accuracies <- accuracies %>%
             rownames_to_column() %>%
-        pivot_longer(!rowname)
+        pivot_longer(!rowname) %>%
+        filter(value > .5)
         
     
     p3 <- ggplot(accuracies, aes(x = rowname, y = value, fill = rowname)) +
@@ -265,8 +282,8 @@ grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjec
 
 ```{r application}
 
-k1 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5 , control_to_case_ratio = 3, snp = snp, sampling_iterations = 5, k = 1)
-#k2 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 2)
+# k1 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5 , control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1)
+k2 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5, control_to_case_ratio = 3, snp = snp, sampling_iterations = 5, k = 2)
 #k3 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5, control_to_case_ratio = 3, snp = snp, sampling_iterations = 5, k = 4)
 ```
 
