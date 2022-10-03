@@ -152,11 +152,13 @@ celiac_control_sampling <- function(subjects= subjects, DS_dosage = DS_dosage, c
 
 ```{r cv}
 
-celiac_cv  <-  function( DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1) {
-
-    ## group_numbers <- ceiling(length(celiac_subjects)/k)
-    ## groups <- split(celiac_subjects, cut(seq_along(celiac_subjects), group_numbers, labels = FALSE))
-    groups <- combn(celiac_subjects, k, simplify = FALSE)
+celiac_cv  <-  function( DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1, all_combinations = FALSE) {
+    if(all_combinations) {
+        groups <- combn(celiac_subjects, k, simplify = FALSE)        
+    } else {
+        group_numbers <- ceiling(length(celiac_subjects)/k)
+        groups <- split(celiac_subjects, cut(seq_along(celiac_subjects), group_numbers, labels = FALSE))
+    }
     weighted_means <- list()
     for(i in 1:length(groups)) {
         weighted_means[[i]] <- celiac_control_sampling(groups[[i]], DS_dosage=DS_dosage, control_subjects = control_subjects, celiac_subjects= celiac_subjects, control_to_case_ratio=control_to_case_ratio, snp=snp, sampling_iterations = sampling_iterations, test_iterations = test_iterations)
@@ -183,7 +185,7 @@ celiac_bootstrap <- function(DS_dosage = DS_dosage, control_subjects = control_s
 
 ```{r risk score cv function}
 
-celiac_GRS <- function(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1) {
+celiac_GRS <- function(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1, all_combinations = FALSE) {
 
     original_names <- names(DS_dosage)
     names(DS_dosage) <- make.names(original_names)
@@ -201,7 +203,7 @@ celiac_GRS <- function(DS_dosage = DS_dosage, control_subjects = control_subject
     breakdown <- table(DS_dosage[[snp]], DS_dosage$Celiac)
     
     if(!(dim(breakdown)[1] == 2 && any(breakdown == 0))) {
-        grs_results[[snp]] <- celiac_cv(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = test_iterations, control_to_case_ratio = control_to_case_ratio, snp = snp, sampling_iterations = sampling_iterations, k = k)
+        grs_results[[snp]] <- celiac_cv(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = test_iterations, control_to_case_ratio = control_to_case_ratio, snp = snp, sampling_iterations = sampling_iterations, k = k, all_combinations = all_combinations)
         print(paste0(round(which(names(DS_dosage)==snp)/49,2)*100,"% complete"))
 
 
@@ -222,10 +224,10 @@ celiac_GRS <- function(DS_dosage = DS_dosage, control_subjects = control_subject
  
  
 ```{r}
-grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1) {
+grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 10, control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1, all_combinations = FALSE) {
                                         
     
-    grs_results <- celiac_GRS(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = test_iterations, control_to_case_ratio = control_to_case_ratio, snp = snp, sampling_iterations =sampling_iterations, k = k)
+    grs_results <- celiac_GRS(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = test_iterations, control_to_case_ratio = control_to_case_ratio, snp = snp, sampling_iterations =sampling_iterations, k = k, all_combinations = all_combinations)
     
     grs_results_df <- data.frame(do.call(rbind,grs_results))
     rownames(grs_results_df) <- names(DS_dosage)[1:49]
@@ -283,7 +285,7 @@ grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjec
 ```{r application}
 
 # k1 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5 , control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1)
-k2 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5, control_to_case_ratio = 3, snp = snp, sampling_iterations = 5, k = 2)
+k2 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5, control_to_case_ratio = 3, snp = snp, sampling_iterations = 5, k = 2, all_combinations = FALSE)
 #k3 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5, control_to_case_ratio = 3, snp = snp, sampling_iterations = 5, k = 4)
 ```
 
