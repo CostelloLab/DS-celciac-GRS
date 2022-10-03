@@ -4,7 +4,17 @@ Sharp et al. created a polygenic risk score (GRS) for Celiac Disease using the r
 
 # Datasets
 
-**Data are not curently included in this repository due to HIPAA restrictions**
+**Data are not curently included in this repository due to HIPAA restrictions** 
+
+metadata = "MEGA_041822_META_CeliacGRS_v0.1_JRS.csv"
+sharp results and gene dosage data = "MEGA_041822_AnalysisData_CDGRS_Sharp2022_v0.1_JRS.csv"
+
+
+HTP genotype principal components pcs = "MEGA_041822_Espinosa_MEGA2_HTP_GS_08132019_updated_callrate_passing_QC_KEEPforHLAvsCeliac_EXCLUDEvariants_mind05_geno0.02_maf0.05_PRUNEDindeppairwise0.2_v0.1_JRS.eigenvec"
+
+
+# Recreating the GRS
+
 
 In this analysis I attempted to recreate the GRS from the Sharp et al. study. An issue with the smaller HTP data is the case imbalance. There are 19 observed Celiac cases with 185 controls. This imbalance can cause bias in the models from outliers in the small sample of cases. To address this, the models are built by downsampling the control samples (i.e., those without Celiac disease). One can set the ratio ofcontrols to cases with the 'control_to_cases_ratio' parameter. The default is 3 (i.e., 3 cases for every control, still unbalanced but far less than the original 185:19). 
 
