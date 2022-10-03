@@ -125,8 +125,8 @@ celiac_accuracy <- function(subjects = subjects, DS_dosage = DS_dosage, control_
         ix <- which(J == max(J[is.finite(test_roc$thresholds)]))
         test_data$prediction <- ifelse(test_data$probabilities > test_roc$thresholds[ix], 1, 0) # Choosing the threshold for prediction
         tmp_accuracy[[x]] <-  yardstick::bal_accuracy_vec(factor(test_data$Celiac), factor(test_data$prediction))
-        print(test_data[, c(snp,'Celiac','prediction')])
-        print(tmp_accuracy[[x]])
+##        print(test_data[, c(snp,'Celiac','prediction')])
+##      print(tmp_accuracy[[x]])
        }
 
     return(list(model = model, accuracy = mean(as.numeric(tmp_accuracy))))
@@ -285,7 +285,7 @@ grs_wrapper <- function(DS_dosage = DS_dosage, control_subjects = control_subjec
 ```{r application}
 
 # k1 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5 , control_to_case_ratio = 3, snp = snp, sampling_iterations = 10, k = 1)
-k2 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5, control_to_case_ratio = 3, snp = snp, sampling_iterations = 5, k = 2, all_combinations = FALSE)
+k2 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5, control_to_case_ratio = 3, snp = snp, sampling_iterations = 1000, k = 2, all_combinations = FALSE)
 #k3 <- grs_wrapper(DS_dosage = DS_dosage, control_subjects = control_subjects, celiac_subjects = celiac_subjects, test_iterations = 5, control_to_case_ratio = 3, snp = snp, sampling_iterations = 5, k = 4)
 ```
 
