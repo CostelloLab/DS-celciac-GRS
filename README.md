@@ -26,7 +26,6 @@ We assessed model performance using the held-out cases and a random sampling of 
 
 These models are run using the notebook /rmarkdown/HTP_Celiac_GRS.Rmd
 
-# Results
 
 
 
