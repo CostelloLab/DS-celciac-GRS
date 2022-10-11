@@ -299,7 +299,7 @@ HTP_celiac_GRS_weights <- k2$grs_results_df %>%
   rownames_to_column("SNP")
 names(HTP_celiac_GRS_weights)[2]<- "weight"
 HTP_celiac_GRS_weights$weight <- as.numeric(HTP_celiac_GRS_weights$weight)
-write.csv(HTP_celiac_GRS_weights, file = "./results/HTP_celiac_GRS_weights_10042022_LG.csv")
+write.csv(HTP_celiac_GRS_weights, file = "./results/HTP_celiac_GRS_weights_20221011_LG.csv")
 ```
 
 ```{r sub sampling test, eval = FALSE}
